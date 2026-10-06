@@ -1,6 +1,6 @@
 # BotBay PoC Architecture
 
-**Status:** Draft for review · v0.1 · 6 October 2026
+**Status:** Draft for review · v0.2 · 6 October 2026
 **Scope:** How the proof of concept is built. What the system must do is in [PRD.md](PRD.md); this document decides how.
 
 ## 1. What the PoC must prove
@@ -10,7 +10,7 @@ One question, from PRD §1: **can two agents reach an agreement while each princ
 The PoC is done when:
 
 - A buyer agent and a seller agent negotiate the road bike scenario over A2A, through Affinidi Agent Gateway surfaces, and both store the same signed agreement.
-- Every P0 policy fixture (PRD §7, minus the deferrals in §10 below) produces zero unauthorized forwarded offers or signatures.
+- Every P0 policy fixture (PRD §7, minus the deferrals in §11 below) produces zero unauthorized forwarded offers or signatures.
 - Gateway traces show that a denied offer never reached the counterparty, and the agent and marketplace endpoints reject direct calls that skip the gateway.
 
 Anything that does not serve those three outcomes is out of scope.
@@ -154,22 +154,36 @@ LLM strategies plug in once stage A passes and run unchanged in B and C. The fix
 
 ## 9. Deployment
 
-- The gateway needs stable public target URLs. Nodes and marketplace run as three apps on our CapRover VPS with fixed hostnames. Tunnels are avoided because a restarted tunnel changes the hostname and breaks every target and redirect at once.
+- The gateway needs stable public target URLs. Nodes and marketplace run as three apps on the project's CapRover VPS with fixed hostnames. Tunnels are avoided because a restarted tunnel changes the hostname and breaks every target and redirect at once.
 - One container image for both participant roles, selected by config; one for the marketplace.
 - Mandates, keys and gateway credentials are mounted secrets, never in the repo.
 - Stage A runs entirely locally and in CI with no secrets.
 
-## 10. Scope changes against the PRD
+## 10. Stack
+
+| Concern | Choice | Note |
+| --- | --- | --- |
+| Language and runtime | **TypeScript** on Node.js 24 LTS or later | One language for nodes, marketplace and fixtures. |
+| A2A | `@a2a-js/sdk` | Wrapped by the A2A adapter so the SDK version can move without touching the Guard. |
+| Payload validation | `zod` | Strict schemas; unknown keys in `terms` rejected. |
+| Ledger | `node:sqlite` (built in) | Fallback to `better-sqlite3` if we hit a gap. One file per participant. |
+| Canonical JSON | `canonicalize` (RFC 8785) | Shared test vectors in `fixtures/`. |
+| Signatures | `node:crypto` Ed25519 | No third-party crypto dependency. |
+| Marketplace | Small HTTP server + `openapi.yaml` | Consumed by the gateway MCP Proxy. |
+| Monorepo | npm workspaces | `node`, `marketplace`, `fixtures`, `tests` as packages. |
+| Hosting | CapRover on our VPS | Three apps with fixed hostnames (§9). |
+
+## 11. Scope changes against the PRD
 
 | PRD item | PoC position | Why |
 | --- | --- | --- |
-| REC-02 (signed `CLOSE`, `CLOSED_UNAGREED`) | **Deferred to P1** | Distributed-closure edge case; does not answer the core question. |
-| Durable outbox crash fixtures (part of STATE-02) | **Deferred to P1** | The buyer-driven model plus idempotent retries covers lost replies; crash-injection testing is extra work. |
+| REC-02 (signed `CLOSE`, `CLOSED_UNAGREED`) | **Deferred to P1** (agreed) | Distributed-closure edge case; does not answer the core question. |
+| Durable outbox crash fixtures (part of STATE-02) | **Deferred to P1** (agreed) | The buyer-driven model plus idempotent retries covers lost replies; crash-injection testing is extra work. |
 | `RECONCILING` | **Reduced** to buyer-side retry with `STATUS` | Only the buyer initiates, so only the buyer reconciles. |
 | One gateway with two surfaces before two gateways | **Kept** (stages B then C) | Matches PRD M1 to M4. |
 | Everything else in P0 | **Kept** | |
 
-## 11. Repository layout (proposed)
+## 12. Repository layout (proposed)
 
 ```
 botbay/
@@ -182,11 +196,10 @@ botbay/
   deploy/          container files, CapRover definitions
 ```
 
-## 12. Open decisions
+## 13. Open decisions
 
 | Decision | Proposal | Blocking |
 | --- | --- | --- |
-| Language | **Python** with `a2a-sdk` (reference SDK, most examples). TypeScript with `@a2a-js/sdk` if the team prefers. | Before stage A |
 | A2A version | Pin the version our gateway supports; keep the payload behind the adapter. | Before stage A |
 | Does Rego see the A2A body? | Print `input` on a test surface. If yes, add a stateless ceiling/floor check as a second layer. | M0 spike |
 | Can policy block a response? | Test on the seller surface. Not required by this design, useful as defense in depth. | M0 spike |
